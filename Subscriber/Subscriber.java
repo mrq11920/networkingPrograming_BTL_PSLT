@@ -15,6 +15,10 @@ import java.nio.charset.StandardCharsets;
 public class Subscriber {
 	private static final String COMMAND_QUIT = "QUIT";
 
+	private static Pattern PATTERN_TOPIC = Pattern.compile(
+		"^\\{\"topic\":\"([^\"]+)\",\"datetime\":\"([^\"]+)\",\"temperature\":\"([^\"]+)\",\"humidity\":\"([^\"]+%)\"\\}"
+	);	
+
 	private Socket socket           = null;
 	private DataInputStream  input  = null;
 	private DataOutputStream output = null;
@@ -50,6 +54,8 @@ public class Subscriber {
 				String response = new String(response_bytes, StandardCharsets.UTF_8);
 				if (response.startsWith("{\"available_topics\":") && response.endsWith("\"}")) {
 					System.out.println("Broker: " + getAvailableTopics(response));
+				} else if (response.startsWith("{\"topic\":") && response.endsWith("\"}")) {
+					System.out.println("Broker: " + getTopicInfo(response));
 				} else {
 					System.out.println("Broker: " + response);
 				}
@@ -71,6 +77,23 @@ public class Subscriber {
 		catch (IOException e) {
 			System.out.println(e);
 		}
+	}
+
+	public static String getTopicInfo(String data) {
+		// {"topic":"locationA/sensorA","datetime":"Sun Nov 28 17:50:51","temperature":"35","humidity":"56%"}
+		Matcher matcher = PATTERN_TOPIC.matcher(data);
+		String result = "";
+		if (matcher.matches()) {
+			String topic_field = matcher.group(1);
+			String datetime_field = matcher.group(2);
+			String temperature_field = matcher.group(3);
+			String humidity_field = matcher.group(4);
+			result = String.format(
+				"At %s, about the topic %s:\n- Temperature: %s\n- Humidity: %s",
+				datetime_field, topic_field, temperature_field, humidity_field
+			);
+		}
+		return result;
 	}
 
 	public static String getAvailableTopics(String data) {
