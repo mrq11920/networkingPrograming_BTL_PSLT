@@ -19,8 +19,8 @@
 #define LISTENQ 20
 #define SERV_PORT 9111
 
-#define PUBLISHER 128
-#define SUBSCRIBER 256
+#define PUBLISHER 256
+#define SUBSCRIBER 257
 
 #define C_CONNECTED 1
 #define C_HANDSHAKING 2
@@ -30,6 +30,9 @@
 
 #define C_SUB2TOPIC 16
 #define C_SUB2TOPIC_DONE 32
+
+#define C_START_SENDING_DATA 64
+#define C_START_RECEIVING_DATA 128
 
 // #define C_AUTHENTICATING 8
 // #define C_AUTHENTICATING_DONE 16
@@ -47,6 +50,7 @@ const char *BYE_MESSAGE = "500 BYE";
 const char *CREATE = "CREATE";
 const char *SUB2TOPIC = "SUB";
 const char *LIST = "LIST";
+const char *START = "START";
 
 // struct subscriber
 // {
@@ -64,7 +68,7 @@ struct topic
 {
     char topicId[128];
     int sockfdList[MAX_CONNECTIONS];
-    char *messageQueue[100];
+    char *messageQueue[256];
     int messageCount;
     // int dispose;
     // int publisherList[MAX_CONNECTIONS];
@@ -109,8 +113,13 @@ int getAllAvailableTopics(char *buf)
     strcat(buf, "\"}");
     return 1;
 }
-int hanldeQuitClient(int sockfd)
+int getSubscribedTopics(int sockfd)
 {
+    // strcpy()
+}
+int handleQuitClient(int sockfd)
+{
+    printf("call handleQuitClient, sockfd --> %d\n", sockfd);
     clientStatus[sockfd] = 0;
     // int clientType = allClients[sockfd]; // clientType: PUBLISHER or SUBSCRIBER
     allClients[sockfd] = 0;
@@ -236,8 +245,8 @@ int main(int argc, char *argv[])
 
     for (;;)
     {
-        //every 1000ms loop return max 20 socket I/O events
-        nfds = epoll_wait(epfd, events, 20, 1000);
+        //every 100ms loop return max 20 socket I/O events
+        nfds = epoll_wait(epfd, events, 20, 100);
 
         for (i = 0; i < nfds; ++i)
         {
@@ -275,7 +284,7 @@ int main(int argc, char *argv[])
                         if (errno == ECONNRESET)
                         {
                             close(sockfd);
-                            hanldeQuitClient(sockfd);
+                            handleQuitClient(sockfd);
                             events[i].data.fd = -1;
                         }
                         else
@@ -284,7 +293,7 @@ int main(int argc, char *argv[])
                     else if (n == 0)
                     {
                         close(sockfd);
-                        hanldeQuitClient(sockfd);
+                        handleQuitClient(sockfd);
                         events[i].data.fd = -1;
                     }
                     receiveBuf[n] = '\0';
@@ -313,19 +322,20 @@ int main(int argc, char *argv[])
                                 strcpy(sendBuf, "404 Invalid command");
                             break;
                         case C_HANDSHAKING:
+                            // now we identify client
+                            // printf("check for SUB or CREATE from client!\n");
+                            // case 1:
                             // Publisher: CREATE
                             // Broker: 210 Create new topic
-
-                            // Subscriber: SUB
-                            // Broker: {“available topics”:”locationA/sensorA,locationA/sensorB”}
-                            // now we identify client
-                            printf("check for SUB or CREATE from client!\n");
                             if (strncmp(receiveBuf, CREATE, strlen(CREATE)) == 0)
                             {
                                 strcpy(sendBuf, "210 Create new topic");
                                 clientStatus[sockfd] = C_CREATETOPIC;
                                 allClients[sockfd] = PUBLISHER;
                             }
+                            // case 2
+                            // Subscriber: SUB
+                            // Broker: {“available topics”:”locationA/sensorA,locationA/sensorB”}
                             else if (strncmp(receiveBuf, SUB2TOPIC, strlen(SUB2TOPIC)) == 0)
                             {
                                 // return  {“available topics”:”locationA/sensorA,locationA/sensorB”}
@@ -343,7 +353,7 @@ int main(int argc, char *argv[])
                             break;
                         case C_CREATETOPIC:
                             // Publisher: locationA/sensorA
-                            // Broker: 220 Create topic “locationA/sensorA” successfully
+                            // Broker: 220 Create topic successfully
 
                             //validate input
                             printf("check for input Topic from client| case C_CREATETOPIC\n");
@@ -357,13 +367,28 @@ int main(int argc, char *argv[])
                             clientStatus[sockfd] = C_CREATETOPIC_DONE;
                             break;
                         case C_CREATETOPIC_DONE:
+                            // case 1: publisher sends START to start sending message
+                            if (strncmp(receiveBuf, START, strlen(START)) == 0)
+                            {
+                                strcpy(sendBuf, "230 Ok start sending data");
+                                clientStatus[sockfd] = C_START_SENDING_DATA;
+                            }
+                            // case 2: publisher sends CREATE again to create a new topic
+                            else if (strncmp(receiveBuf, CREATE, strlen(CREATE)) == 0)
+                            {
+                                strcpy(sendBuf, "210 Create new topic");
+                                clientStatus[sockfd] = C_CREATETOPIC;
+                            }
+                            else
+                                strcpy(sendBuf, "404 Invalid command");
+                            break;
+                        case C_START_SENDING_DATA:
                             // Publisher: {"topic":"locationA/sensorA","datetime":"Sun Nov 28 17:50:51","temperature":"35","humidity":"56%""}
                             // Broker: 230 Topic is updated
                             printf("check for message from publisher | case C_CREATETOPIC_DONE\n");
                             printf("receiveBuff --> %s\n", receiveBuf);
                             if (strncmp(receiveBuf, "{\"topic\"", 8) == 0)
                             {
-                                printf("found topic in first 8 character \n");
                                 char *regexString = "\\{\"topic\":\"(.*)\",\"datetime\":\"(.*)\"";
                                 size_t maxGroups = 3;
                                 regex_t regexCompiled;
@@ -390,25 +415,20 @@ int main(int argc, char *argv[])
                                     printf("topicId ---> %s, Message --> %s\n", topicId, receiveBuf);
 
                                     int topicIndex = addMessageToTopic(topicId, receiveBuf, sockfd);
-                                    printf("message just added to topic index --> %d",topicIndex);
+                                    printf("message just added to topic index --> %d\n", topicIndex);
 
                                     // add topic that has new message to a queue, later we sent this message to all of its subscribers
                                     if (topicIndex >= 0)
                                     {
                                         topicsHaveMessageQueue[topicsHaveMessageCount] = topicIndex;
                                         topicsHaveMessageCount++;
-                                        strcpy(sendBuf, "230 Topic is updated");
+                                        strcpy(sendBuf, "240 Topic is updated");
                                     }
                                     else
                                     {
-                                        printf("does not found specific topic");
+                                        printf("does not found specific topic\n");
+                                        strcpy(sendBuf, "450 Topic does not exist");
                                     }
-
-                                    // Change the settings associated with receiverSockfd to new settings, this case writing (EPOLLOUT)
-                                    // struct epoll_event messageEvent;
-                                    // messageEvent.data.fd = receiverSockfd;
-                                    // messageEvent.events = EPOLLOUT | EPOLLET;
-                                    // epoll_ctl(epfd, EPOLL_CTL_MOD, receiverSockfd, &messageEvent);
                                 }
                                 else
                                     strcpy(sendBuf, "404 Invalid command");
@@ -426,21 +446,40 @@ int main(int argc, char *argv[])
                             int success = subscribeToTopic(topicId, sockfd);
                             if (success)
                             {
-                                // snprintf(sendBuf, "310 Subscribed to topic: %s", topicId);
                                 strcpy(sendBuf, "310 Subscribe to topic successfully");
                                 clientStatus[sockfd] = C_SUB2TOPIC_DONE;
                             }
                             else
                             {
-                                // snprintf(sendBuf, "410 Topic %s is not available", topicId);
                                 strcpy(sendBuf, "410 Topic is not available");
+                                // return to phase C_HANDSHAKING.
                                 clientStatus[sockfd] = C_HANDSHAKING;
                             }
                             break;
-                            // case C_SUB2TOPIC_DONE:
-                            // now subscriber just wait for message
-                            // break;
+                        case C_SUB2TOPIC_DONE:
 
+                            // case 1: subscriber sends START to start receiving data
+                            if (strncmp(receiveBuf, START, strlen(START)) == 0)
+                            {
+                                strcpy(sendBuf, "320 Ok start receiving data");
+                                clientStatus[sockfd] = C_START_RECEIVING_DATA;
+                            }
+                            // case 2: publisher sends SUB again to subscribe to a topic
+                            else if (strncmp(receiveBuf, SUB2TOPIC, strlen(SUB2TOPIC)) == 0)
+                            {
+                                printf("client send SUB \n");
+                                char availableTopics[MAXLINE];
+                                getAllAvailableTopics(availableTopics);
+                                strcpy(sendBuf, availableTopics);
+                                //set it back to phase C_SUB2TOPIC
+                                clientStatus[sockfd] = C_SUB2TOPIC;
+                            }
+                            else
+                                strcpy(sendBuf, "404 Invalid command");
+
+                            break;
+                        case C_START_RECEIVING_DATA:
+                            break;
                         default:
                             break;
                         }
@@ -451,7 +490,7 @@ int main(int argc, char *argv[])
                     //Ready to write after reading
                     epoll_ctl(epfd, EPOLL_CTL_MOD, sockfd, &ev); // EPOLL_CTL_MOD: Change the settings associated with fd in the interest list to the new settings specified in event.
                 }
-                if (events[i].events & EPOLLOUT) //  If there is data to send
+                else if (events[i].events & EPOLLOUT) //  If there is data to send
                 {
                     sockfd = events[i].data.fd;
                     write(sockfd, sendBuf, strlen(sendBuf));
@@ -459,34 +498,8 @@ int main(int argc, char *argv[])
                     if (strncmp(sendBuf, BYE_MESSAGE, strlen(BYE_MESSAGE)) == 0)
                     {
                         close(sockfd);
-                        hanldeQuitClient(sockfd);
+                        handleQuitClient(sockfd);
                         events[i].data.fd = -1;
-                    }
-                    if (topicsHaveMessageCount > 0)
-                    {
-                        printf("topicsHaveMessageCount --> %d",topicsHaveMessageCount);
-                        struct topic *tp = &allTopics[topicsHaveMessageQueue[topicsHaveMessageCount - 1]];
-                        int hasSubscriber = 0;
-                        if (tp->messageCount > 0)
-                        {
-                            strcpy(messageBuf, tp->messageQueue[tp->messageCount - 1]);
-                            printf("copy message from topic to messageBuf\n");
-                            for (int i = 0; i < MAX_CONNECTIONS; i++)
-                            {
-                                if (tp->sockfdList[i] == SUBSCRIBER)
-                                {
-                                    hasSubscriber = 1;
-                                    write(i, messageBuf, strlen(messageBuf));
-                                }
-                            }
-                            if (hasSubscriber)
-                            {
-                                printf("free one message from top of a topic\n");
-                                free(tp->messageQueue[tp->messageCount - 1]);
-                                tp->messageCount--;
-                                topicsHaveMessageCount--;
-                            }
-                        }
                     }
 
                     ev.data.fd = sockfd;
@@ -494,6 +507,31 @@ int main(int argc, char *argv[])
                     //After writing, this sockfd is ready to read
                     epoll_ctl(epfd, EPOLL_CTL_MOD, sockfd, &ev);
                 }
+            }
+        }
+        if (topicsHaveMessageCount > 0)
+        {
+            printf("topicsHaveMessageCount --> %d\n", topicsHaveMessageCount);
+            // pop from top of stack 
+            struct topic *tp = &allTopics[topicsHaveMessageQueue[topicsHaveMessageCount - 1]];
+            // minus 1 because we pop data
+            topicsHaveMessageCount--;
+            if (tp->messageCount > 0)
+            {
+                strcpy(messageBuf, tp->messageQueue[tp->messageCount - 1]);
+                printf("copy message from topic to messageBuf\n");
+                for (int i = 0; i < MAX_CONNECTIONS; i++)
+                {
+                    // check in sockfd list of a topic if it's a SUBSCRIBER and ready for receiving message
+                    if (tp->sockfdList[i] == SUBSCRIBER && allClients[i] == C_START_RECEIVING_DATA)
+                    {
+                        write(i, messageBuf, strlen(messageBuf));
+                    }
+                }
+
+                printf("free one message from top of a topic\n");
+                free(tp->messageQueue[tp->messageCount - 1]);
+                tp->messageCount--;
             }
         }
     }
