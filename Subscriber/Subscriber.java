@@ -48,6 +48,7 @@ public class Subscriber {
 				String line = stdin.nextLine();
 				System.out.println("Input: " + line);
 				output.write(line.getBytes());
+				output.flush();
 				int count = input.available();
 				byte[] response_bytes = new byte[count];
 				int read_bytes = input.read(response_bytes);
