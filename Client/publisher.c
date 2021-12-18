@@ -173,11 +173,6 @@ int main(int argc, char **argv)
                             // copy topicId from sendBuf to the top of createdTopics || createdTopics[createdTopicsCount]
                             strncpy(createdTopics[createdTopicsCount], sendBuf, strlen(sendBuf));
                             createdTopicsCount++;
-
-                            ev.data.fd = sockfd;
-                            ev.events = EPOLLOUT | EPOLLET;
-                            // //After reading, this sockfd is ready to write
-                            epoll_ctl(epfd, EPOLL_CTL_MOD, sockfd, &ev);
                         }
                         break;
                     case C_CREATETOPIC_DONE:
