@@ -523,7 +523,7 @@ int main(int argc, char *argv[])
                 for (int i = 0; i < MAX_CONNECTIONS; i++)
                 {
                     // check in sockfd list of a topic if it's a SUBSCRIBER and ready for receiving message
-                    if (tp->sockfdList[i] == SUBSCRIBER && allClients[i] == C_START_RECEIVING_DATA)
+                    if (tp->sockfdList[i] == SUBSCRIBER && clientStatus[i] == C_START_RECEIVING_DATA)
                     {
                         write(i, messageBuf, strlen(messageBuf));
                     }
