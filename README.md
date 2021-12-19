@@ -1,8 +1,10 @@
 # networkingPrograming_BTL_PSLT
 
-Cổng giao thức: 9111
+Bài tập lớn môn Lập trình mạng - nhóm Pháp sư lang thang
 
 ## Giao thức
+
+Cổng giao thức: 9111
 
 Phía Publisher: 
 ```
