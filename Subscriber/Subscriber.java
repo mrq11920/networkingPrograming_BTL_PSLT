@@ -16,9 +16,7 @@ public class Subscriber {
 
 	private static final String COMMAND_QUIT = "QUIT";
 
-	private static Pattern PATTERN_TOPIC = Pattern.compile(
-		"^\\{\"topic\":\"([^\"]+)\",\"datetime\":\"([^\"]+)\",\"temperature\":\"([^\"]+)\",\"humidity\":\"([^\"]+%)\"\\}"
-	);	
+	private static String TOPIC_PATTERN = "^\\{\"topic\":\"([^\"]+)\",\"datetime\":\"([^\"]+)\",\"temperature\":\"([^\"]+)\",\"humidity\":\"([^\"]+)\"\\}$";
 
 	private Socket socket           = null;
 	private DataInputStream  input  = null;
@@ -41,16 +39,21 @@ public class Subscriber {
 		}
 
 		Scanner stdin = new Scanner(System.in);
+		boolean isSubscribed = false;
+		String line = "";
 		while (true) {
 			try {
-				System.out.print("Subscriber: ");
-				System.out.flush();
+				if (!isSubscribed) {
+					System.out.print("Subscriber: ");
+					System.out.flush();
 
-				String line = stdin.nextLine();
-				System.out.println("Input: " + line);
-				output.write(line.getBytes());
-				output.flush();
+					line = stdin.nextLine();
+					System.out.println("Input: " + line);
+					output.write(line.getBytes());
+					output.flush();
 
+					isSubscribed = isSubscribed || line.equals("START");
+				}
 				String response = "";
 				byte[] response_bytes = new byte[BUFFER_LENGTH];
 				while (true) {
@@ -60,7 +63,6 @@ public class Subscriber {
 						if (read_bytes > 0) {
 							response += new String(response_bytes, 0, read_bytes, StandardCharsets.UTF_8);
 						}
-						System.out.println(response);
 						if (read_bytes < response_bytes.length) {
 							break;
 						}
@@ -70,10 +72,10 @@ public class Subscriber {
 						break;
 					}
 				}
-
-				if (response.startsWith("{\"available_topics\":") && response.endsWith("\"}")) {
+				response = response.trim();
+				if (response.startsWith("{\"available_topics\":")) {
 					System.out.println("Broker: " + getAvailableTopics(response));
-				} else if (response.startsWith("{\"topic\":") && response.endsWith("\"}")) {
+				} else if (response.startsWith("{\"topic\":")) {
 					System.out.println("Broker: " + getTopicInfo(response));
 				} else {
 					System.out.println("Broker: " + response);
@@ -100,7 +102,8 @@ public class Subscriber {
 
 	public static String getTopicInfo(String data) {
 		// {"topic":"locationA/sensorA","datetime":"Sun Nov 28 17:50:51","temperature":"35","humidity":"56%"}
-		Matcher matcher = PATTERN_TOPIC.matcher(data);
+		Pattern pattern = Pattern.compile(TOPIC_PATTERN);
+		Matcher matcher = pattern.matcher(data);
 		String result = "";
 		if (matcher.matches()) {
 			String topic_field = matcher.group(1);
@@ -135,8 +138,7 @@ public class Subscriber {
 		return
 			"Note: “QUIT” to quit\n" + 
 			"Input “TOPIC” to subscribe an available topic\n" + 
-			"Input “SUB” to view all available topic then input a topic to subscribe to it\n" + 
-			"Input “LIST” to view all subscribed topics";
+			"Input “SUB” to view all available topic then input a topic to subscribe to it";
 	}
 
 	public static void main(String[] args) {
