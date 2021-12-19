@@ -42,6 +42,10 @@
 #define MAX_CONNECTIONS 256
 #define MAX_TOPICS 128
 
+#define SUB_ALL_TOPIC 512
+#define SUB_ALL_SENSOR_IN_LOCATION 513
+#define SUB_A_TOPIC 514
+
 void setnonblocking(int sock);
 
 const char *HELO = "HELO";
@@ -67,7 +71,11 @@ const char *START = "START";
 struct topic
 {
     char topicId[128];
-    int sockfdList[MAX_CONNECTIONS];
+    // so if subscriberAndPublisherfdList[5] = PUBLISHER
+    // meaning that in this topic client has file descriptor equal 5 is a PUBLISHER
+    // the same for subscriberAndPublisherfdList[6] = SUBSCRIBER
+    // meaning that in this topic client has file descriptor equal 6 is a SUBSCRIBER
+    int subscriberAndPublisherfdList[MAX_CONNECTIONS];
     char *messageQueue[256];
     int messageCount;
     // int dispose;
@@ -80,7 +88,7 @@ struct topic allTopics[MAX_TOPICS];
 int topicsHaveMessageQueue[MAX_TOPICS];
 int topicsHaveMessageCount = 0;
 
-int allClients[MAX_CONNECTIONS];
+int allClientsType[MAX_CONNECTIONS];
 short clientStatus[MAX_CONNECTIONS];
 
 // struct user allOnlineUsers[MAX_USERS];
@@ -122,28 +130,61 @@ int handleQuitClient(int sockfd)
     printf("call handleQuitClient, sockfd --> %d\n", sockfd);
     clientStatus[sockfd] = 0;
     // int clientType = allClients[sockfd]; // clientType: PUBLISHER or SUBSCRIBER
-    allClients[sockfd] = 0;
+    allClientsType[sockfd] = 0;
     for (int i = 0; i < MAX_TOPICS; i++)
     {
+        // set every client that has file descriptor equal sockfd in every topic to ZERO
         if (strlen(allTopics[i].topicId) > 0)
         {
-            allTopics[i].sockfdList[sockfd] = 0;
+            allTopics[i].subscriberAndPublisherfdList[sockfd] = 0;
         }
     }
 }
 
-int subscribeToTopic(char *topicId, int sockfd)
+int subscribeToTopic(char *topicId, int sockfd, int subscribeType)
 {
     int success = 0;
-    int clientType = allClients[sockfd];
+    int clientType = allClientsType[sockfd];
     // printf("clientType --> %d\n", (clientType == SUBSCRIBER) ? "SUBSCRIBER" : "PUBLISHER");
     for (int i = 0; i < MAX_TOPICS; i++)
     {
-        if (strlen(allTopics[i].topicId) > 0 && allClients[sockfd] == SUBSCRIBER && strncmp(allTopics[i].topicId, topicId, strlen(topicId)) == 0)
+        // check if a topic is valid and client is a SUBSCRIBER
+        if (strlen(allTopics[i].topicId) > 0 && allClientsType[sockfd] == SUBSCRIBER)
         {
-            allTopics[i].sockfdList[sockfd] = SUBSCRIBER;
-            success = 1;
-            break;
+            switch (subscribeType)
+            {
+            case SUB_ALL_TOPIC:
+                printf("case SUB_ALL_TOPIC\n");
+                allTopics[i].subscriberAndPublisherfdList[sockfd] = SUBSCRIBER;
+                success = 1;
+                break;
+            case SUB_ALL_SENSOR_IN_LOCATION:
+                printf("case SUB_ALL_SENSOR_IN_LOCATION\n");
+                //point to slash '/'
+                char *slash;
+                // index of slash '/'
+                int index;
+                slash = strchr(topicId, '/');
+                index = (int)(slash - topicId);
+
+                //compare location of topic
+                if (strncmp(allTopics[i].topicId, topicId, index) == 0)
+                {
+                    allTopics[i].subscriberAndPublisherfdList[sockfd] = SUBSCRIBER;
+                    success = 1;
+                }
+                break;
+            case SUB_A_TOPIC:
+                printf("case SUB_A_TOPIC\n");
+                if (strncmp(allTopics[i].topicId, topicId, strlen(topicId)) == 0)
+                {
+                    allTopics[i].subscriberAndPublisherfdList[sockfd] = SUBSCRIBER;
+                    success = 1;
+                }
+                break;
+            default:
+                break;
+            }
         }
     }
     return success;
@@ -156,7 +197,7 @@ int addMessageToTopic(char *topicId, char *message, int sockfd)
     int topicIndex = -1;
     for (int i = 0; i < MAX_TOPICS; i++)
     {
-        if (strlen(allTopics[i].topicId) > 0 && allTopics[i].sockfdList[sockfd] == PUBLISHER && strncmp(allTopics[i].topicId, topicId, strlen(topicId)) == 0)
+        if (strlen(allTopics[i].topicId) > 0 && allTopics[i].subscriberAndPublisherfdList[sockfd] == PUBLISHER && strncmp(allTopics[i].topicId, topicId, strlen(topicId)) == 0)
         {
             topicIndex = i;
             struct topic *tp;
@@ -178,10 +219,10 @@ int addTopicToAllTopics(struct topic tp, int sockfd)
     int tpExists = 0;
     for (int i = 0; i < MAX_TOPICS; i++)
     {
-        if (strlen(allTopics[i].topicId) > 0 && strcmp(tp.topicId, allTopics[i].topicId) == 0)
+        if (strlen(allTopics[i].topicId) > 0 && strncmp(tp.topicId, allTopics[i].topicId, strlen(tp.topicId)) == 0)
         {
             tpExists = 1;
-            allTopics[i].sockfdList[sockfd] = PUBLISHER;
+            allTopics[i].subscriberAndPublisherfdList[sockfd] = PUBLISHER;
             break;
         }
     }
@@ -194,7 +235,7 @@ int addTopicToAllTopics(struct topic tp, int sockfd)
                 struct topic *t;
                 t = &allTopics[i];
                 strcpy(t->topicId, tp.topicId);
-                t->sockfdList[sockfd] = PUBLISHER;
+                t->subscriberAndPublisherfdList[sockfd] = PUBLISHER;
                 break;
             }
         }
@@ -299,7 +340,8 @@ int main(int argc, char *argv[])
                     receiveBuf[n] = '\0';
                     // printf("AFTER EPOLLIN\n");
                     // user send QUIT to end session
-                    if (strncmp(receiveBuf, QUIT, strlen(QUIT)) == 0)
+                    //check if receiveBuf contains QUIT
+                    if (strstr(receiveBuf, QUIT) != NULL)
                     {
                         strcpy(sendBuf, "500 BYE");
                     }
@@ -331,7 +373,7 @@ int main(int argc, char *argv[])
                             {
                                 strcpy(sendBuf, "210 Create new topic");
                                 clientStatus[sockfd] = C_CREATETOPIC;
-                                allClients[sockfd] = PUBLISHER;
+                                allClientsType[sockfd] = PUBLISHER;
                             }
                             // case 2
                             // Subscriber: SUB
@@ -346,7 +388,7 @@ int main(int argc, char *argv[])
                                 strcpy(sendBuf, availableTopics);
 
                                 clientStatus[sockfd] = C_SUB2TOPIC;
-                                allClients[sockfd] = SUBSCRIBER;
+                                allClientsType[sockfd] = SUBSCRIBER;
                             }
                             else
                                 strcpy(sendBuf, "404 Invalid command");
@@ -354,17 +396,26 @@ int main(int argc, char *argv[])
                         case C_CREATETOPIC:
                             // Publisher: locationA/sensorA
                             // Broker: 220 Create topic successfully
+                            // validate input by checking if it contains '/'
+                            if (strchr(receiveBuf, '/') != NULL)
+                            {
+                                // createTopic
+                                struct topic tp;
+                                strcpy(tp.topicId, receiveBuf);
+                                tp.messageCount = 0;
+                                tp.subscriberAndPublisherfdList[sockfd] = PUBLISHER;
 
-                            //validate input
-                            printf("check for input Topic from client| case C_CREATETOPIC\n");
-                            struct topic tp;
-                            strcpy(tp.topicId, receiveBuf);
-                            tp.messageCount = 0;
-                            tp.sockfdList[sockfd] = PUBLISHER;
-                            // createTopic
-                            addTopicToAllTopics(tp, sockfd);
-                            strcpy(sendBuf, "220 Create topic successfully");
-                            clientStatus[sockfd] = C_CREATETOPIC_DONE;
+                                addTopicToAllTopics(tp, sockfd);
+                                strcpy(sendBuf, "220 Create topic successfully");
+                                clientStatus[sockfd] = C_CREATETOPIC_DONE;
+                            }
+                            else
+                            {
+                                strcpy(sendBuf, "460 Invalid topic");
+                                //set it back to phase C_HANDSHAKING
+                                clientStatus[sockfd] = C_HANDSHAKING;
+                            }
+
                             break;
                         case C_CREATETOPIC_DONE:
                             // case 1: publisher sends START to start sending message
@@ -384,7 +435,7 @@ int main(int argc, char *argv[])
                             break;
                         case C_START_SENDING_DATA:
                             // Publisher: {"topic":"locationA/sensorA","datetime":"Sun Nov 28 17:50:51","temperature":"35","humidity":"56%""}
-                            // Broker: 230 Topic is updated
+                            // Broker: 240 Topic is updated
                             printf("check for message from publisher | case C_CREATETOPIC_DONE\n");
                             printf("receiveBuff --> %s\n", receiveBuf);
                             if (strncmp(receiveBuf, "{\"topic\"", 8) == 0)
@@ -441,20 +492,59 @@ int main(int argc, char *argv[])
                             // Broker: 310 Subscribed to topic: “locationA/sensorA”
                             printf("Check for topic input from client\n");
                             char topicId[128];
+
+                            int success = 0;
                             strncpy(topicId, receiveBuf, n + 1);
-                            printf("client want to sub to topicId --> %s", topicId);
-                            int success = subscribeToTopic(topicId, sockfd);
-                            if (success)
+                            printf("client want to sub to topicId --> %s\n", topicId);
+                            // validate topic by checking if it contains '/'
+                            if (strchr(receiveBuf, '/') != NULL)
                             {
-                                strcpy(sendBuf, "310 Subscribe to topic successfully");
-                                clientStatus[sockfd] = C_SUB2TOPIC_DONE;
+                                char location[128], sensor[128];
+                                // split topicId by '/' and copy to location and sensor
+                                int count = 0;
+                                char *end, *r, *tok;
+                                r = end = strdup(topicId);
+                                while ((tok = strsep(&end, "/")) != NULL)
+                                {
+                                    if (count == 0)
+                                        strcpy(location, tok);
+                                    else
+                                        strcpy(sensor, tok);
+                                    count++;
+                                    printf("%s\n", tok);
+                                }
+                                // free duplicate string (a copy of topicId)
+                                free(r);
+
+                                // case 1: */* means sub to every topic
+                                if (strncmp(location, "*", 1) == 0 && strncmp(sensor, "*", 1) == 0)
+                                    success = subscribeToTopic(topicId, sockfd, SUB_ALL_TOPIC);
+                                // case 2: locationA/* means sub to every sensors in locationA
+                                else if (strncmp(sensor, "*", 1) == 0)
+                                    success = subscribeToTopic(topicId, sockfd, SUB_ALL_SENSOR_IN_LOCATION);
+                                // case 3: locationA/SensorA just sub to a topic
+                                else
+                                    success = subscribeToTopic(topicId, sockfd, SUB_A_TOPIC);
+
+                                if (success)
+                                {
+                                    strcpy(sendBuf, "310 Subscribe to topic successfully");
+                                    clientStatus[sockfd] = C_SUB2TOPIC_DONE;
+                                }
+                                else
+                                {
+                                    strcpy(sendBuf, "410 Topic is not available");
+                                    // return to phase C_HANDSHAKING.
+                                    clientStatus[sockfd] = C_HANDSHAKING;
+                                }
                             }
                             else
                             {
-                                strcpy(sendBuf, "410 Topic is not available");
-                                // return to phase C_HANDSHAKING.
+                                strcpy(sendBuf, "460 Invalid topic");
+                                //set it back to phase C_HANDSHAKING
                                 clientStatus[sockfd] = C_HANDSHAKING;
                             }
+
                             break;
                         case C_SUB2TOPIC_DONE:
 
@@ -501,18 +591,20 @@ int main(int argc, char *argv[])
                         handleQuitClient(sockfd);
                         events[i].data.fd = -1;
                     }
-
-                    ev.data.fd = sockfd;
-                    ev.events = EPOLLIN | EPOLLET;
-                    //After writing, this sockfd is ready to read
-                    epoll_ctl(epfd, EPOLL_CTL_MOD, sockfd, &ev);
+                    else
+                    {
+                        ev.data.fd = sockfd;
+                        ev.events = EPOLLIN | EPOLLET;
+                        //After writing, this sockfd is ready to read
+                        epoll_ctl(epfd, EPOLL_CTL_MOD, sockfd, &ev);
+                    }
                 }
             }
         }
         if (topicsHaveMessageCount > 0)
         {
             printf("topicsHaveMessageCount --> %d\n", topicsHaveMessageCount);
-            // pop from top of stack 
+            // pop from top of stack
             struct topic *tp = &allTopics[topicsHaveMessageQueue[topicsHaveMessageCount - 1]];
             // minus 1 because we pop data
             topicsHaveMessageCount--;
@@ -523,7 +615,7 @@ int main(int argc, char *argv[])
                 for (int i = 0; i < MAX_CONNECTIONS; i++)
                 {
                     // check in sockfd list of a topic if it's a SUBSCRIBER and ready for receiving message
-                    if (tp->sockfdList[i] == SUBSCRIBER && clientStatus[i] == C_START_RECEIVING_DATA)
+                    if (tp->subscriberAndPublisherfdList[i] == SUBSCRIBER && clientStatus[i] == C_START_RECEIVING_DATA)
                     {
                         write(i, messageBuf, strlen(messageBuf));
                     }
