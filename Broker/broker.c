@@ -1,6 +1,5 @@
 //Nguyễn Minh Quang - 18021044
-//10.2 Viết chương trình chat cho phép nhiều client có thể chat với nhau sử dụng máy chủ đa luồng
-// Đây là phía Server nhận yêu cầu từ nhiều client theo giao thức và trả về nội dung theo giao thức yêu cầu trong tài liệu kèm theo
+// Đây chương trình broker, nhận yêu cầu từ subscriber, publisher và thực hiện theo yêu cầu như trong giao thức 
 
 #include <sys/socket.h>
 #include <sys/epoll.h>
