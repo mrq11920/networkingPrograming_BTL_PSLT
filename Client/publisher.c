@@ -1,6 +1,5 @@
 // Nguyễn Minh Quang - 18021044
-// 10.2 Viết chương trình chat cho phép nhiều client có thể chat với nhau sử dụng máy chủ đa luồng
-// Đây là phía Client, Nhập input từ bàn phím và giao tiếp với server theo giao thức trong tài liệu kèm theo
+// Đây là Publisher, kết nối với broker tạo ra các topic rồi sinh dữ liệu và publish dữ liệu vào các topic 
 
 #include <sys/types.h>
 #include <sys/socket.h>
