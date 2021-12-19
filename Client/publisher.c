@@ -176,7 +176,7 @@ int main(int argc, char **argv)
                         }
                         break;
                     case C_CREATETOPIC_DONE:
-                        // case 1: publisher send CREATE to create a new topic and receive CREATE_TOPIC_MESSAGE(210 Create new topic)
+                        // case 1: publisher send CREATE again to create a new topic and receive CREATE_TOPIC_MESSAGE(210 Create new topic)
                         if (strncmp(receiveBuf, CREATE_TOPIC_MESSAGE, strlen(CREATE_TOPIC_MESSAGE)) == 0)
                         {
                             // set it back to phase C_CREATETOPIC
@@ -207,10 +207,10 @@ int main(int argc, char **argv)
         }
         if (clientStatus == C_START_SENDING_DATA)
         {
-            printf("Prepare data to send to Broker\n");
-            sleep(1);
+            printf("Prepare data and send  it to Broker\n");
             for (int i = 0; i < createdTopicsCount; i++)
             {
+                sleep(1);
                 time_t now = time(NULL);
                 struct tm tm_now;
                 localtime_r(&now, &tm_now);
