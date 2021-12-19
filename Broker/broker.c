@@ -507,11 +507,16 @@ int main(int argc, char *argv[])
                                 while ((tok = strsep(&end, "/")) != NULL)
                                 {
                                     if (count == 0)
+                                    {
+                                        printf("location --> %s\n", tok);
                                         strcpy(location, tok);
+                                    }
                                     else
+                                    {
+                                        printf("sensor --> %s\n", tok);
                                         strcpy(sensor, tok);
+                                    }
                                     count++;
-                                    printf("%s\n", tok);
                                 }
                                 // free duplicate string (a copy of topicId)
                                 free(r);
