@@ -113,7 +113,7 @@ int main(int argc, char **argv)
                     exit(1);
                 }
                 receiveBuf[nbytes] = '\0';
-                printf("AFTER EPOLLIN\n");
+                // printf("AFTER EPOLLIN\n");
 
                 //exit program
                 if (strncmp(receiveBuf, BYE, strlen(BYE)) == 0)
