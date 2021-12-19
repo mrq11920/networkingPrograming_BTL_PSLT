@@ -6,13 +6,14 @@
 
 import java.net.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.*;
 import java.util.Scanner;
 import java.nio.charset.StandardCharsets;
 
 public class Subscriber {
+	private static final int BUFFER_LENGTH = 4096;
+
 	private static final String COMMAND_QUIT = "QUIT";
 
 	private static Pattern PATTERN_TOPIC = Pattern.compile(
@@ -49,10 +50,27 @@ public class Subscriber {
 				System.out.println("Input: " + line);
 				output.write(line.getBytes());
 				output.flush();
-				int count = input.available();
-				byte[] response_bytes = new byte[count];
-				int read_bytes = input.read(response_bytes);
-				String response = new String(response_bytes, StandardCharsets.UTF_8);
+
+				String response = "";
+				byte[] response_bytes = new byte[BUFFER_LENGTH];
+				while (true) {
+					int read_bytes;
+					try {
+						read_bytes = input.read(response_bytes);
+						if (read_bytes > 0) {
+							response += new String(response_bytes, 0, read_bytes, StandardCharsets.UTF_8);
+						}
+						System.out.println(response);
+						if (read_bytes < response_bytes.length) {
+							break;
+						}
+					}
+					catch (IOException e) {
+						System.out.println(e);
+						break;
+					}
+				}
+
 				if (response.startsWith("{\"available_topics\":") && response.endsWith("\"}")) {
 					System.out.println("Broker: " + getAvailableTopics(response));
 				} else if (response.startsWith("{\"topic\":") && response.endsWith("\"}")) {
@@ -101,7 +119,11 @@ public class Subscriber {
 		if (!data.startsWith("{\"available_topics\":") || !data.endsWith("\"}")) {
 			return "";
 		}
-		String[] topics = data.substring(21, data.length()-2).split(",");
+		String topic_string = data.substring(21, data.length() - 2);
+		if (topic_string.length() == 0) {
+			return "There are no available topics!";
+		}
+		String[] topics = topic_string.split(",");
 		String result = "Available topics:";
 		for (String topic: topics) {
 			result += "\n- " + topic;
